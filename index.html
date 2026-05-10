@@ -1,0 +1,1066 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>コリドール created by T0kz</title>
+
+<!-- Firebase -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+
+<style>
+body { font-family: sans-serif; text-align: center; background: #f0f0f0; }
+#info { font-size: 20px; margin: 10px; }
+#wallInfo { font-size: 18px; margin-bottom: 10px; }
+
+.board-wrapper {
+    position: relative;
+    width: fit-content;
+    margin: auto;
+}
+
+.board {
+    display: grid;
+    grid-template-columns: repeat(9, 50px);
+    grid-template-rows: repeat(9, 50px);
+    gap: 4px;
+}
+
+.cell {
+    width: 50px;
+    height: 50px;
+    background: #fff;
+    border: 1px solid #999;
+    position: relative;
+}
+
+.highlight {
+    background: #bde5ff !important;
+}
+
+.gap-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+}
+
+.wall-h, .wall-v {
+    position: absolute;
+}
+
+.wall {
+    background: black;
+}
+
+.preview {
+    background: rgba(0,0,0,0.3);
+}
+
+.invalid {
+    background: rgba(255,0,0,0.6);
+}
+
+.player1, .player2 {
+    border-radius: 50%;
+    width: 80%;
+    height: 80%;
+    position: absolute;
+    top: 10%;
+    left: 10%;
+}
+
+.player1 {
+    background: red;
+}
+
+.player2 {
+    background: blue;
+}
+
+.blink {
+    animation: blinkAnim 1s infinite;
+}
+
+@keyframes blinkAnim {
+    0% { opacity:1; }
+    50% { opacity:0.3; }
+    100% { opacity:1; }
+}
+
+button {
+    margin-top: 15px;
+    padding: 20px 30px;
+    font-size: 20px;
+    border-radius: 10px;
+    cursor: pointer;
+}
+
+.activeMode {
+    background: #ffe066;
+    animation: modeBlink 1s infinite;
+}
+
+@keyframes modeBlink {
+    0% { opacity:1; }
+    50% { opacity:0.5; }
+    100% { opacity:1; }
+}
+</style>
+</head>
+
+<body>
+
+<h2>コリドール</h2>
+
+<div id="info"></div>
+<div id="wallInfo"></div>
+
+<div class="board-wrapper">
+    <div class="board" id="board"></div>
+    <div class="gap-layer" id="gapLayer"></div>
+</div>
+
+<button id="moveBtn" onclick="setMode('move')">移動</button>
+<button id="wallBtn" onclick="setMode('wall')">壁</button>
+<button onclick="rotateWall()">回転</button>
+
+<script>
+
+/* =========================
+   Firebase設定
+========================= */
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBSv8dBNEEvleEPIWXKsDr1leo44wczWUQ",
+  authDomain: "t0kz-8a295.firebaseapp.com",
+  databaseURL: "https://t0kz-8a295-default-rtdb.firebaseio.com",
+  projectId: "t0kz-8a295",
+  storageBucket: "t0kz-8a295.firebasestorage.app",
+  messagingSenderId: "340993512959",
+  appId: "1:340993512959:web:3ead34afce689ecba703ca"
+};
+
+firebase.initializeApp(firebaseConfig);
+
+const db = firebase.database();
+
+const roomRef = db.ref("rooms/testRoom");
+
+/* =========================
+   基本変数
+========================= */
+
+const board = document.getElementById("board");
+const gapLayer = document.getElementById("gapLayer");
+
+const moveBtn = document.getElementById("moveBtn");
+const wallBtn = document.getElementById("wallBtn");
+
+const CELL = 50;
+const GAP = 4;
+const STEP = CELL + GAP;
+
+let player1 = {x:4, y:0};
+let player2 = {x:4, y:8};
+
+let currentPlayer = 1;
+let firstPlayer = 1;
+
+let myPlayer = null;
+
+let mode = "move";
+
+let walls = [];
+let tempWall = null;
+
+let wallsLeft = {
+    1:10,
+    2:10
+};
+
+/* =========================
+   プレイヤー自動割り当て
+========================= */
+
+const playerRef = roomRef.child("players");
+
+playerRef.transaction(players => {
+
+    if(players === null){
+
+        myPlayer = 1;
+
+        return {
+            p1:true,
+            p2:false
+        };
+
+    }
+
+    if(!players.p2){
+
+        myPlayer = 2;
+
+        players.p2 = true;
+
+        return players;
+
+    }
+
+    return players;
+
+}, () => {
+
+    draw();
+
+});
+
+/* =========================
+   Firebase同期
+========================= */
+
+function syncGame(){
+
+    roomRef.child("game").set({
+        player1,
+        player2,
+        currentPlayer,
+        firstPlayer,
+        mode,
+        walls,
+        wallsLeft
+    });
+
+}
+
+roomRef.child("game").on("value", snapshot => {
+
+    const data = snapshot.val();
+
+    if(!data) return;
+
+    player1 = data.player1;
+    player2 = data.player2;
+
+    currentPlayer = data.currentPlayer;
+
+    firstPlayer = data.firstPlayer || 1;
+
+    mode = data.mode || "move";
+
+    walls = data.walls || [];
+
+    wallsLeft = data.wallsLeft || {
+        1:10,
+        2:10
+    };
+
+    draw();
+
+});
+
+/* =========================
+   自分のターン判定
+========================= */
+
+function isMyTurn(){
+    return currentPlayer === myPlayer;
+}
+
+/* =========================
+   モード
+========================= */
+
+function setMode(newMode){
+
+    if(!isMyTurn()) return;
+
+    mode = newMode;
+
+    tempWall = null;
+
+    updateModeUI();
+
+    draw();
+
+}
+
+function updateModeUI(){
+
+    moveBtn.classList.remove("activeMode");
+    wallBtn.classList.remove("activeMode");
+
+    if(mode==="move"){
+        moveBtn.classList.add("activeMode");
+    }
+
+    if(mode==="wall"){
+        wallBtn.classList.add("activeMode");
+    }
+
+}
+
+/* =========================
+   ゴール到達可能判定
+========================= */
+
+function canReachGoal(player){
+
+    const visited = Array.from(
+        {length:9},
+        ()=>Array(9).fill(false)
+    );
+
+    const queue = [{
+        x:player.x,
+        y:player.y
+    }];
+
+    while(queue.length){
+
+        const {x,y} = queue.shift();
+
+        if(visited[y][x]) continue;
+
+        visited[y][x] = true;
+
+        if(player === player1 && y===8){
+            return true;
+        }
+
+        if(player === player2 && y===0){
+            return true;
+        }
+
+        const dirs = [
+            {dx:1,dy:0},
+            {dx:-1,dy:0},
+            {dx:0,dy:1},
+            {dx:0,dy:-1}
+        ];
+
+        for(const d of dirs){
+
+            const nx = x + d.dx;
+            const ny = y + d.dy;
+
+            if(nx<0 || nx>8 || ny<0 || ny>8){
+                continue;
+            }
+
+            if(isBlocked(x,y,nx,ny)){
+                continue;
+            }
+
+            if(!visited[ny][nx]){
+                queue.push({
+                    x:nx,
+                    y:ny
+                });
+            }
+
+        }
+
+    }
+
+    return false;
+
+}
+
+function isValidTempWall(w){
+
+    if(!w) return true;
+
+    walls.push(w);
+
+    const ok =
+        canReachGoal(player1) &&
+        canReachGoal(player2);
+
+    walls.pop();
+
+    return ok;
+
+}
+
+/* =========================
+   描画
+========================= */
+
+function draw(){
+
+    board.innerHTML = "";
+    gapLayer.innerHTML = "";
+
+    for(let y=0;y<9;y++){
+
+        for(let x=0;x<9;x++){
+
+            const cell = document.createElement("div");
+
+            cell.className = "cell";
+
+            if(mode==="move" && isMyTurn()){
+
+                let player =
+                    currentPlayer===1
+                    ? player1
+                    : player2;
+
+                if(canMove(player.x,player.y,x,y)){
+                    cell.classList.add("highlight");
+                }
+
+            }
+
+            if(player1.x===x && player1.y===y){
+
+                const p = document.createElement("div");
+
+                p.className = "player1";
+
+                if(currentPlayer===1){
+                    p.classList.add("blink");
+                }
+
+                cell.appendChild(p);
+
+            }
+
+            if(player2.x===x && player2.y===y){
+
+                const p = document.createElement("div");
+
+                p.className = "player2";
+
+                if(currentPlayer===2){
+                    p.classList.add("blink");
+                }
+
+                cell.appendChild(p);
+
+            }
+
+            cell.onclick = ()=>handleClick(x,y);
+
+            board.appendChild(cell);
+
+        }
+
+    }
+
+    walls.forEach(w=>{
+        drawWall(w,false);
+    });
+
+    if(tempWall){
+
+        const valid =
+            isValidTempWall(tempWall);
+
+        drawWall(tempWall,true,valid);
+
+    }
+
+    document.getElementById("info").innerText =
+        (isMyTurn()
+        ? "あなたのターン"
+        : "相手のターン")
+        +
+        " / プレイヤー" +
+        currentPlayer +
+        " (" +
+        mode +
+        ")";
+
+    document.getElementById("wallInfo").innerText =
+        "壁 P1:" +
+        wallsLeft[1] +
+        " / P2:" +
+        wallsLeft[2];
+
+}
+
+/* =========================
+   壁描画
+========================= */
+
+function drawWall(w,isPreview,valid=true){
+
+    const wall =
+        document.createElement("div");
+
+    wall.className =
+        (w.type==="h")
+        ? "wall-h"
+        : "wall-v";
+
+    if(isPreview){
+
+        wall.classList.add(
+            valid ? "preview" : "invalid"
+        );
+
+    }else{
+
+        wall.classList.add("wall");
+
+    }
+
+    if(w.type==="h"){
+
+        wall.style.width =
+            (STEP*2-GAP)+"px";
+
+        wall.style.height =
+            GAP+"px";
+
+        wall.style.left =
+            (w.x*STEP)+"px";
+
+        wall.style.top =
+            ((w.y+1)*STEP-GAP)+"px";
+
+    }else{
+
+        wall.style.width =
+            GAP+"px";
+
+        wall.style.height =
+            (STEP*2-GAP)+"px";
+
+        wall.style.left =
+            ((w.x+1)*STEP-GAP)+"px";
+
+        wall.style.top =
+            (w.y*STEP)+"px";
+
+    }
+
+    gapLayer.appendChild(wall);
+
+}
+
+/* =========================
+   入力
+========================= */
+
+function handleClick(x,y){
+
+    if(!isMyTurn()) return;
+
+    if(mode==="move"){
+        movePlayer(x,y);
+    }else{
+        handleWallClick(x,y);
+    }
+
+}
+
+/* =========================
+   壁処理
+========================= */
+
+function handleWallClick(x,y){
+
+    function canPlace(x,y){
+        return x<8 && y<8;
+    }
+
+    function isCross(x,y,t){
+
+        return walls.some(w=>
+            w.x===x &&
+            w.y===y &&
+            w.type!==t
+        );
+
+    }
+
+    function isOverlap(x,y,t){
+
+        return walls.some(w=>{
+
+            if(w.type!==t){
+                return false;
+            }
+
+            return t==="h"
+                ? (
+                    w.y===y &&
+                    Math.abs(w.x-x)<=1
+                )
+                : (
+                    w.x===x &&
+                    Math.abs(w.y-y)<=1
+                );
+
+        });
+
+    }
+
+    if(wallsLeft[currentPlayer] <= 0){
+
+        tempWall = null;
+
+        draw();
+
+        return;
+
+    }
+
+    if(!tempWall){
+
+        if(canPlace(x,y)){
+
+            tempWall = {
+                x,
+                y,
+                type:"h"
+            };
+
+        }
+
+    }else if(
+        tempWall.x===x &&
+        tempWall.y===y
+    ){
+
+        if(
+            canPlace(x,y) &&
+            !isCross(
+                x,
+                y,
+                tempWall.type
+            ) &&
+            !isOverlap(
+                x,
+                y,
+                tempWall.type
+            )
+        ){
+
+            walls.push({...tempWall});
+
+            const ok =
+                canReachGoal(player1) &&
+                canReachGoal(player2);
+
+            if(ok){
+
+                wallsLeft[currentPlayer]--;
+
+                currentPlayer =
+                    currentPlayer===1
+                    ? 2
+                    : 1;
+
+                syncGame();
+
+            }else{
+
+                walls.pop();
+
+            }
+
+        }
+
+        tempWall = null;
+
+    }else{
+
+        if(canPlace(x,y)){
+
+            tempWall = {
+                x,
+                y,
+                type:tempWall.type
+            };
+
+        }
+
+    }
+
+    draw();
+
+}
+
+function rotateWall(){
+
+    if(!isMyTurn()) return;
+
+    if(tempWall){
+
+        tempWall.type =
+            tempWall.type==="h"
+            ? "v"
+            : "h";
+
+        draw();
+
+    }
+
+}
+
+/* =========================
+   壁判定
+========================= */
+
+function isBlocked(x1,y1,x2,y2){
+
+    return walls.some(w=>{
+
+        if(w.type==="h"){
+
+            return (
+
+                (x1===w.x &&
+                 x2===w.x &&
+                 y1===w.y &&
+                 y2===w.y+1)
+
+                ||
+
+                (x1===w.x+1 &&
+                 x2===w.x+1 &&
+                 y1===w.y &&
+                 y2===w.y+1)
+
+                ||
+
+                (x2===w.x &&
+                 x1===w.x &&
+                 y2===w.y &&
+                 y1===w.y+1)
+
+                ||
+
+                (x2===w.x+1 &&
+                 x1===w.x+1 &&
+                 y2===w.y &&
+                 y1===w.y+1)
+
+            );
+
+        }else{
+
+            return (
+
+                (y1===w.y &&
+                 y2===w.y &&
+                 x1===w.x &&
+                 x2===w.x+1)
+
+                ||
+
+                (y1===w.y+1 &&
+                 y2===w.y+1 &&
+                 x1===w.x &&
+                 x2===w.x+1)
+
+                ||
+
+                (y2===w.y &&
+                 y1===w.y &&
+                 x2===w.x &&
+                 x1===w.x+1)
+
+                ||
+
+                (y2===w.y+1 &&
+                 y1===w.y+1 &&
+                 x2===w.x &&
+                 x1===w.x+1)
+
+            );
+
+        }
+
+    });
+
+}
+
+/* =========================
+   移動
+========================= */
+
+function canMove(px,py,x,y){
+
+    const opponent =
+        currentPlayer===1
+        ? player2
+        : player1;
+
+    if(
+        opponent.x===x &&
+        opponent.y===y
+    ){
+        return false;
+    }
+
+    const dx = x - px;
+    const dy = y - py;
+
+    if(Math.abs(dx)+Math.abs(dy)===1){
+
+        if(isBlocked(px,py,x,y)){
+            return false;
+        }
+
+        return true;
+
+    }
+
+    const ax = opponent.x;
+    const ay = opponent.y;
+
+    if(
+        Math.abs(px-ax)+
+        Math.abs(py-ay)!==1
+    ){
+        return false;
+    }
+
+    const dirX = ax - px;
+    const dirY = ay - py;
+
+    const bx = ax + dirX;
+    const by = ay + dirY;
+
+    if(x===bx && y===by){
+
+        if(
+            bx<0 || bx>8 ||
+            by<0 || by>8
+        ){
+            return false;
+        }
+
+        if(isBlocked(px,py,ax,ay)){
+            return false;
+        }
+
+        if(isBlocked(ax,ay,bx,by)){
+            return false;
+        }
+
+        return true;
+
+    }
+
+    const backBlocked =
+
+        bx<0 ||
+        bx>8 ||
+        by<0 ||
+        by>8 ||
+
+        isBlocked(ax,ay,bx,by);
+
+    if(backBlocked){
+
+        if(dirX!==0){
+
+            if(
+
+                (
+                    x===ax &&
+                    y===ay+1 &&
+                    !isBlocked(
+                        ax,
+                        ay,
+                        ax,
+                        ay+1
+                    )
+                )
+
+                ||
+
+                (
+                    x===ax &&
+                    y===ay-1 &&
+                    !isBlocked(
+                        ax,
+                        ay,
+                        ax,
+                        ay-1
+                    )
+                )
+
+            ){
+
+                if(!isBlocked(px,py,ax,ay)){
+                    return true;
+                }
+
+            }
+
+        }
+
+        if(dirY!==0){
+
+            if(
+
+                (
+                    x===ax+1 &&
+                    y===ay &&
+                    !isBlocked(
+                        ax,
+                        ay,
+                        ax+1,
+                        ay
+                    )
+                )
+
+                ||
+
+                (
+                    x===ax-1 &&
+                    y===ay &&
+                    !isBlocked(
+                        ax,
+                        ay,
+                        ax-1,
+                        ay
+                    )
+                )
+
+            ){
+
+                if(!isBlocked(px,py,ax,ay)){
+                    return true;
+                }
+
+            }
+
+        }
+
+    }
+
+    return false;
+
+}
+
+function movePlayer(x,y){
+
+    let player =
+        currentPlayer===1
+        ? player1
+        : player2;
+
+    if(
+        !canMove(
+            player.x,
+            player.y,
+            x,
+            y
+        )
+    ){
+        return;
+    }
+
+    player.x = x;
+    player.y = y;
+
+    if(player1.y===8){
+
+        alert("P1勝利");
+
+        reset();
+
+        return;
+
+    }
+
+    if(player2.y===0){
+
+        alert("P2勝利");
+
+        reset();
+
+        return;
+
+    }
+
+    currentPlayer =
+        currentPlayer===1
+        ? 2
+        : 1;
+
+    syncGame();
+
+    draw();
+
+}
+
+/* =========================
+   リセット
+========================= */
+
+function reset(){
+
+    firstPlayer =
+        firstPlayer===1
+        ? 2
+        : 1;
+
+    currentPlayer = firstPlayer;
+
+    if(firstPlayer===1){
+
+        player1 = {
+            x:4,
+            y:0
+        };
+
+        player2 = {
+            x:4,
+            y:8
+        };
+
+    }else{
+
+        player1 = {
+            x:4,
+            y:8
+        };
+
+        player2 = {
+            x:4,
+            y:0
+        };
+
+    }
+
+    walls = [];
+
+    tempWall = null;
+
+    wallsLeft = {
+        1:10,
+        2:10
+    };
+
+    updateModeUI();
+
+    syncGame();
+
+    draw();
+
+}
+
+/* =========================
+   初期化
+========================= */
+
+updateModeUI();
+
+syncGame();
+
+draw();
+
+</script>
+
+</body>
+</html>
