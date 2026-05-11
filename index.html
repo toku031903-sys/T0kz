@@ -1069,9 +1069,17 @@ function reset(){
 
 updateModeUI();
 
-syncGame();
+roomRef.child("game").once("value", snapshot => {
 
-draw();
+    if(!snapshot.exists()){
+
+        syncGame();
+
+    }
+
+    draw();
+
+});
 
 </script>
 
