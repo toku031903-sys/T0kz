@@ -26,6 +26,7 @@
 body { font-family: sans-serif; text-align: center; background: #f0f0f0; }
 #info { font-size: 20px; margin: 10px; }
 #wallInfo { font-size: 18px; margin-bottom: 10px; }
+#roomInfo { font-size: 16px; margin-bottom: 10px; }
 
 .board-wrapper {
     position: relative;
@@ -124,7 +125,7 @@ button {
 
 <div id="info"></div>
 <div id="wallInfo"></div>
-<div id="roomInfo"></div> <!-- ★追加 -->
+<div id="roomInfo"></div>
 
 <div class="board-wrapper">
     <div class="board" id="board"></div>
@@ -155,15 +156,15 @@ firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
 /* =========================
-   🔥 ルーム機能（追加）
+   ルーム機能
 ========================= */
 
 const roomsRef = db.ref("rooms");
 
-let roomId = "testRoom";
-let roomRef = roomsRef.child(roomId);
+let roomId = null;
+let roomRef = null;
+let playerRef = null;
 
-/* 空き部屋 or 新規作成 */
 async function assignRoom(){
 
     const snap = await roomsRef.once("value");
@@ -175,19 +176,40 @@ async function assignRoom(){
         const p = r.players || {};
 
         if(!p.p1 || !p.p2){
+
             roomId = id;
             roomRef = roomsRef.child(roomId);
+            playerRef = roomRef.child("players");
+
             return;
         }
 
     }
 
     roomId = "room_" + Date.now();
-    roomRef = roomsRef.child(roomId);
 
-    roomRef.set({
-        players:{p1:null,p2:null},
-        game:null,
+    roomRef = roomsRef.child(roomId);
+    playerRef = roomRef.child("players");
+
+    await roomRef.set({
+        players:{
+            p1:null,
+            p2:null
+        },
+
+        game:{
+            player1:{x:4,y:0},
+            player2:{x:4,y:8},
+            currentPlayer:1,
+            firstPlayer:1,
+            mode:"move",
+            walls:[],
+            wallsLeft:{
+                1:10,
+                2:10
+            }
+        },
+
         createdAt:Date.now(),
         lastActive:Date.now()
     });
@@ -227,54 +249,74 @@ let wallsLeft = {
     2:10
 };
 
+const myId =
+    Math.random().toString(36).slice(2);
+
 /* =========================
    プレイヤー割り当て
 ========================= */
 
-const playerRef = roomRef.child("players");
+assignRoom().then(async ()=>{
 
-const myId =
-    Math.random().toString(36).slice(2);
+    const snapshot = await playerRef.once("value");
 
-/* ★ここだけ変更（room対応） */
-assignRoom().then(()=>{
+    let players = snapshot.val() || {};
 
-playerRef.once("value", snapshot => {
-
-    let players = snapshot.val();
-
-    if(!players || (!players.p1 && !players.p2)){
+    if(!players.p1){
 
         myPlayer = 1;
 
-        playerRef.set({
-            p1: myId,
-            p2: null
+        await playerRef.update({
+            p1: myId
         });
 
-        resetRoom();
-
-    }else if(players.p1 && !players.p2){
+    }else if(!players.p2){
 
         myPlayer = 2;
 
-        playerRef.update({
+        await playerRef.update({
             p2: myId
         });
 
     }else{
 
-        alert("部屋が満員です → 新規作成");
-        location.reload();
-        return;
+        roomId = "room_" + Date.now();
+
+        roomRef = roomsRef.child(roomId);
+        playerRef = roomRef.child("players");
+
+        await roomRef.set({
+            players:{
+                p1:myId,
+                p2:null
+            },
+
+            game:{
+                player1:{x:4,y:0},
+                player2:{x:4,y:8},
+                currentPlayer:1,
+                firstPlayer:1,
+                mode:"move",
+                walls:[],
+                wallsLeft:{
+                    1:10,
+                    2:10
+                }
+            },
+
+            createdAt:Date.now(),
+            lastActive:Date.now()
+        });
+
+        myPlayer = 1;
 
     }
 
     initialized = true;
 
-    draw();
+    startSync();
 
-});
+    draw();
 
 });
 
@@ -283,6 +325,8 @@ playerRef.once("value", snapshot => {
 ========================= */
 
 window.addEventListener("beforeunload", ()=>{
+
+    if(!playerRef) return;
 
     playerRef.once("value", snapshot => {
 
@@ -303,7 +347,7 @@ window.addEventListener("beforeunload", ()=>{
 });
 
 /* =========================
-   🔥 1時間空部屋削除（追加）
+   1時間空部屋削除
 ========================= */
 
 setInterval(async ()=>{
@@ -338,6 +382,8 @@ setInterval(async ()=>{
 
 function syncGame(){
 
+    if(!roomRef) return;
+
     roomRef.child("game").set({
         player1,
         player2,
@@ -354,51 +400,33 @@ function syncGame(){
 
 }
 
-roomRef.child("game").on("value", snapshot => {
+function startSync(){
 
-    const data = snapshot.val();
-    if(!data) return;
+    roomRef.child("game").on("value", snapshot => {
 
-    player1 = data.player1;
-    player2 = data.player2;
-    currentPlayer = data.currentPlayer;
-    firstPlayer = data.firstPlayer || 1;
-    mode = data.mode || "move";
-    walls = data.walls || [];
-    wallsLeft = data.wallsLeft || {1:10,2:10};
+        const data = snapshot.val();
 
-    draw();
+        if(!data) return;
 
-});
+        player1 = data.player1;
+        player2 = data.player2;
+        currentPlayer = data.currentPlayer;
+        firstPlayer = data.firstPlayer || 1;
+        mode = data.mode || "move";
+        walls = data.walls || [];
+        wallsLeft = data.wallsLeft || {1:10,2:10};
 
-/* =========================
-   ルーム表示（追加）
-========================= */
+        updateModeUI();
 
-function draw(){
+        draw();
 
-    document.getElementById("roomInfo").innerText =
-        "Room: " + roomId;
-
-    document.getElementById("info").innerText =
-        (isMyTurn() ? "あなたのターン" : "相手のターン")
-        + " / プレイヤー" + currentPlayer
-        + " (" + mode + ")";
-
-    document.getElementById("wallInfo").innerText =
-        "壁 P1:" + wallsLeft[1] +
-        " / P2:" + wallsLeft[2];
+    });
 
 }
 
 /* =========================
-   以下全部そのまま（省略なし）
+   共通
 ========================= */
-
-/* ↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓↓ */
-/* ここから下：あなたの元コード完全維持 */
-/* （変更なしなのでそのまま貼り付けOK） */
-/* ↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑↑ */
 
 function isMyTurn(){
     return currentPlayer === myPlayer;
@@ -414,11 +442,11 @@ function setMode(newMode){
 
     updateModeUI();
 
+    syncGame();
+
     draw();
 
 }
-
-/* ・・・以下あなたの元コード全部そのまま・・・ */
 
 function updateModeUI(){
 
@@ -526,6 +554,9 @@ function draw(){
 
     board.innerHTML = "";
     gapLayer.innerHTML = "";
+
+    document.getElementById("roomInfo").innerText =
+        "部屋番号: " + roomId;
 
     for(let y=0;y<9;y++){
 
@@ -1189,11 +1220,6 @@ function reset(){
 ========================= */
 
 updateModeUI();
-
-</script>
-
-</body>
-</html>
 
 </script>
 
