@@ -181,6 +181,7 @@ let currentPlayer = 1;
 let firstPlayer = 1;
 
 let myPlayer = null;
+let initialized = false;
 
 let mode = "move";
 
@@ -225,7 +226,21 @@ playerRef.transaction(players => {
 
 }, () => {
 
-    draw();
+    if(initialized) return;
+
+    initialized = true;
+
+    roomRef.child("game").once("value", snapshot => {
+
+        if(!snapshot.exists() && myPlayer === 1){
+
+            syncGame();
+
+        }
+
+        draw();
+
+    });
 
 });
 
@@ -1068,18 +1083,6 @@ function reset(){
 ========================= */
 
 updateModeUI();
-
-roomRef.child("game").once("value", snapshot => {
-
-    if(!snapshot.exists()){
-
-        syncGame();
-
-    }
-
-    draw();
-
-});
 
 </script>
 
