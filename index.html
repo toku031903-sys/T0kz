@@ -199,50 +199,128 @@ let wallsLeft = {
 
 const playerRef = roomRef.child("players");
 
-playerRef.transaction(players => {
+const myId =
+    Math.random().toString(36).slice(2);
 
-    if(players === null){
+playerRef.once("value", snapshot => {
+
+    let players = snapshot.val();
+
+    if(!players || (!players.p1 && !players.p2)){
 
         myPlayer = 1;
 
-        return {
-            p1:true,
-            p2:false
-        };
+        playerRef.set({
+            p1: myId,
+            p2: null
+        });
 
-    }
+        resetRoom();
 
-    if(!players.p2){
+    }else if(players.p1 && !players.p2){
 
         myPlayer = 2;
 
-        players.p2 = true;
+        playerRef.update({
+            p2: myId
+        });
 
-        return players;
+    }else if(!players.p1){
+
+        myPlayer = 1;
+
+        playerRef.update({
+            p1: myId
+        });
+
+        resetRoom();
+
+    }else{
+
+        alert("部屋が満員です");
+
+        return;
 
     }
 
-    return players;
-
-}, () => {
-
-    if(initialized) return;
-
     initialized = true;
 
-    roomRef.child("game").once("value", snapshot => {
+    draw();
 
-        if(!snapshot.exists() && myPlayer === 1){
+});
 
-            syncGame();
+/* 切断時に自分を削除 */
+
+window.addEventListener("beforeunload", ()=>{
+
+    playerRef.once("value", snapshot => {
+
+        let players = snapshot.val();
+
+        if(!players) return;
+
+        if(players.p1 === myId){
+
+            playerRef.update({
+                p1:null
+            });
 
         }
 
-        draw();
+        if(players.p2 === myId){
+
+            playerRef.update({
+                p2:null
+            });
+
+        }
 
     });
 
 });
+
+/* 両方抜けたら部屋初期化 */
+
+playerRef.on("value", snapshot => {
+
+    const players = snapshot.val();
+
+    if(!players) return;
+
+    if(!players.p1 && !players.p2){
+
+        resetRoom();
+
+    }
+
+});
+
+/* 部屋初期化 */
+
+function resetRoom(){
+
+    player1 = {x:4,y:0};
+
+    player2 = {x:4,y:8};
+
+    currentPlayer = 1;
+
+    firstPlayer = 1;
+
+    mode = "move";
+
+    walls = [];
+
+    tempWall = null;
+
+    wallsLeft = {
+        1:10,
+        2:10
+    };
+
+    syncGame();
+
+}
 
 /* =========================
    Firebase同期
