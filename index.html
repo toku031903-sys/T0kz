@@ -24,9 +24,26 @@
 
 <style>
 body { font-family: sans-serif; text-align: center; background: #f0f0f0; }
-#info { font-size: 20px; margin: 10px; }
+#info { font-size: 20px; margin: 10px; font-weight:bold; }
 #wallInfo { font-size: 18px; margin-bottom: 10px; }
 #roomInfo { font-size: 16px; margin-bottom: 10px; }
+
+#timerBox{
+    display:inline-block;
+    margin-bottom:10px;
+    padding:10px 20px;
+    border:3px solid #333;
+    border-radius:12px;
+    background:#fff;
+    font-size:24px;
+    font-weight:bold;
+    min-width:160px;
+}
+
+.timerDanger{
+    color:red;
+    animation: blinkAnim 1s infinite;
+}
 
 .board-wrapper {
     position: relative;
@@ -124,6 +141,13 @@ button {
 <h2>コリドール</h2>
 
 <div id="info"></div>
+
+<div id="timerBox">
+    残り時間:
+    <span id="timer">30</span>
+    秒
+</div>
+
 <div id="wallInfo"></div>
 <div id="roomInfo"></div>
 
@@ -248,6 +272,9 @@ let wallsLeft = {
     1:10,
     2:10
 };
+
+let turnTimer = null;
+let timeLeft = 30;
 
 const myId =
     Math.random().toString(36).slice(2);
@@ -377,6 +404,109 @@ setInterval(async ()=>{
 }, 60000);
 
 /* =========================
+   タイマー
+========================= */
+
+function startTurnTimer(){
+
+    clearInterval(turnTimer);
+
+    timeLeft = 30;
+
+    updateTimerUI();
+
+    turnTimer = setInterval(()=>{
+
+        timeLeft--;
+
+        updateTimerUI();
+
+        if(timeLeft <= 0){
+
+            clearInterval(turnTimer);
+
+            forceRandomMove();
+
+        }
+
+    },1000);
+
+}
+
+function updateTimerUI(){
+
+    const timerEl =
+        document.getElementById("timer");
+
+    timerEl.innerText = timeLeft;
+
+    if(timeLeft <= 10){
+
+        timerEl.classList.add(
+            "timerDanger"
+        );
+
+    }else{
+
+        timerEl.classList.remove(
+            "timerDanger"
+        );
+
+    }
+
+}
+
+function forceRandomMove(){
+
+    if(currentPlayer !== myPlayer){
+        return;
+    }
+
+    let player =
+        currentPlayer===1
+        ? player1
+        : player2;
+
+    let moves = [];
+
+    for(let y=0;y<9;y++){
+
+        for(let x=0;x<9;x++){
+
+            if(
+                canMove(
+                    player.x,
+                    player.y,
+                    x,
+                    y
+                )
+            ){
+                moves.push({x,y});
+            }
+
+        }
+
+    }
+
+    if(moves.length===0){
+        return;
+    }
+
+    const randomMove =
+        moves[
+            Math.floor(
+                Math.random()*moves.length
+            )
+        ];
+
+    movePlayer(
+        randomMove.x,
+        randomMove.y
+    );
+
+}
+
+/* =========================
    同期
 ========================= */
 
@@ -419,6 +549,8 @@ function startSync(){
         updateModeUI();
 
         draw();
+
+        startTurnTimer();
 
     });
 
@@ -628,7 +760,10 @@ function draw(){
 
     }
 
-    document.getElementById("info").innerText =
+    const infoEl =
+        document.getElementById("info");
+
+    infoEl.innerText =
         (isMyTurn()
         ? "あなたのターン"
         : "相手のターン")
@@ -638,6 +773,11 @@ function draw(){
         " (" +
         mode +
         ")";
+
+    infoEl.style.color =
+        currentPlayer===1
+        ? "red"
+        : "blue";
 
     document.getElementById("wallInfo").innerText =
         "壁 P1:" +
