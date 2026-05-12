@@ -1003,6 +1003,8 @@ function handleWallClick(x,y){
                     gameStarted = true;
                 }
 
+                mode = "move";
+
                 currentPlayer =
                     currentPlayer===1
                     ? 2
@@ -1344,6 +1346,8 @@ function movePlayer(x,y){
         return;
 
     }
+
+mode = "move";
 
     currentPlayer =
         currentPlayer===1
