@@ -537,11 +537,15 @@ function syncGame(){
 
 function startSync(){
 
+    let prevPlayer = null;
+
     roomRef.child("game").on("value", snapshot => {
 
         const data = snapshot.val();
 
         if(!data) return;
+
+        const oldCurrentPlayer = currentPlayer;
 
         player1 = data.player1;
         player2 = data.player2;
@@ -558,7 +562,14 @@ function startSync(){
 
         if(gameStarted){
 
-            startTurnTimer();
+            // ターンが変わった時だけタイマー再スタート
+            if(prevPlayer !== currentPlayer){
+
+                startTurnTimer();
+
+                prevPlayer = currentPlayer;
+
+            }
 
         }else{
 
