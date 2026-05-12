@@ -231,7 +231,8 @@ async function assignRoom(){
             wallsLeft:{
                 1:10,
                 2:10
-            }
+            },
+            gameStarted:false
         },
 
         createdAt:Date.now(),
@@ -275,6 +276,8 @@ let wallsLeft = {
 
 let turnTimer = null;
 let timeLeft = 30;
+
+let gameStarted = false;
 
 const myId =
     Math.random().toString(36).slice(2);
@@ -328,7 +331,8 @@ assignRoom().then(async ()=>{
                 wallsLeft:{
                     1:10,
                     2:10
-                }
+                },
+                gameStarted:false
             },
 
             createdAt:Date.now(),
@@ -521,7 +525,8 @@ function syncGame(){
         firstPlayer,
         mode,
         walls,
-        wallsLeft
+        wallsLeft,
+        gameStarted
     });
 
     roomRef.update({
@@ -545,12 +550,25 @@ function startSync(){
         mode = data.mode || "move";
         walls = data.walls || [];
         wallsLeft = data.wallsLeft || {1:10,2:10};
+        gameStarted = data.gameStarted || false;
 
         updateModeUI();
 
         draw();
 
-        startTurnTimer();
+        if(gameStarted){
+
+            startTurnTimer();
+
+        }else{
+
+            clearInterval(turnTimer);
+
+            timeLeft = 30;
+
+            updateTimerUI();
+
+        }
 
     });
 
@@ -619,12 +637,26 @@ function canReachGoal(player){
 
         visited[y][x] = true;
 
-        if(player === player1 && y===8){
-            return true;
+        if(player === player1){
+
+            const goal =
+                firstPlayer===1 ? 8 : 0;
+
+            if(y===goal){
+                return true;
+            }
+
         }
 
-        if(player === player2 && y===0){
-            return true;
+        if(player === player2){
+
+            const goal =
+                firstPlayer===1 ? 0 : 8;
+
+            if(y===goal){
+                return true;
+            }
+
         }
 
         const dirs = [
@@ -956,6 +988,10 @@ function handleWallClick(x,y){
 
                 wallsLeft[currentPlayer]--;
 
+                if(!gameStarted){
+                    gameStarted = true;
+                }
+
                 currentPlayer =
                     currentPlayer===1
                     ? 2
@@ -1268,7 +1304,17 @@ function movePlayer(x,y){
     player.x = x;
     player.y = y;
 
-    if(player1.y===8){
+    if(!gameStarted){
+        gameStarted = true;
+    }
+
+    const p1Goal =
+        firstPlayer===1 ? 8 : 0;
+
+    const p2Goal =
+        firstPlayer===1 ? 0 : 8;
+
+    if(player1.y===p1Goal){
 
         alert("P1勝利");
 
@@ -1278,7 +1324,7 @@ function movePlayer(x,y){
 
     }
 
-    if(player2.y===0){
+    if(player2.y===p2Goal){
 
         alert("P2勝利");
 
@@ -1346,6 +1392,14 @@ function reset(){
         1:10,
         2:10
     };
+
+    gameStarted = false;
+
+    clearInterval(turnTimer);
+
+    timeLeft = 30;
+
+    updateTimerUI();
 
     updateModeUI();
 
